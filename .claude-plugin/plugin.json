@@ -1,0 +1,24 @@
+{
+  "name": "jev-claude-orchestrator",
+  "version": "0.1.0",
+  "description": "Madmax conductor for Claude Code: a frontier model plans many tiny slices, subagents write the code, and TypeSafe Jev makes every routing, review, QA and supervision decision in under a second for fractions of a cent.",
+  "author": {"name": "Damian Borek"},
+  "homepage": "https://github.com/damian87x/jev-claude-orchestrator",
+  "repository": "https://github.com/damian87x/jev-claude-orchestrator",
+  "license": "MIT",
+  "keywords": ["jev", "typesafe", "orchestrator", "subagents", "code-review", "qa"],
+  "userConfig": {
+    "health_every": {
+      "type": "number",
+      "title": "Health check every N tool calls",
+      "description": "How often Jev checks a slice worker for stuck / off-track behaviour. 0 disables it.",
+      "default": 8
+    },
+    "max_blocks": {
+      "type": "number",
+      "title": "Max stop blocks per slice",
+      "description": "How many times the stop gate sends a worker back before escalating the slice to the conductor.",
+      "default": 2
+    }
+  }
+}

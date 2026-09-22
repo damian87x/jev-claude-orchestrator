@@ -1,0 +1,16 @@
+{
+  "name": "jev-claude-orchestrator",
+  "owner": {
+    "name": "Damian Borek"
+  },
+  "metadata": {
+    "description": "Jev-supervised madmax conductor plugin for Claude Code."
+  },
+  "plugins": [
+    {
+      "name": "jev-claude-orchestrator",
+      "source": "./",
+      "description": "Jev-supervised madmax conductor: tiny slices, parallel subagent workers, typed Jev decisions."
+    }
+  ]
+}

@@ -1,0 +1,100 @@
+{
+  "triage": {
+    "tier": {
+      "type": "choice",
+      "instructions": "Which worker tier should implement the coding slice described in `slice`?",
+      "criteria": {
+        "fast": "Mechanical: rename, copy change, config value, one small function with an obvious spec, a test for existing behaviour.",
+        "balanced": "Ordinary feature or bug fix inside the listed files with a clear acceptance criterion.",
+        "reasoning": "Architecture, concurrency, security, data migration, subtle debugging, or an acceptance criterion that is ambiguous."
+      }
+    },
+    "risk": {
+      "type": "score",
+      "instructions": "How much damage could a wrong automated implementation of `slice` cause?",
+      "criteria": [
+        "none: tests, docs or trivially reversible",
+        "local: confined to the slice's own files",
+        "shared: shared modules, public API, CI or build config",
+        "severe: auth, money, data loss, production or secrets"
+      ]
+    },
+    "needs_human": {
+      "type": "noul",
+      "instructions": "Does `slice` require spending money, production access, credentials, or an irreversible action that a human must approve first?"
+    },
+    "shared_surface": {
+      "type": "noul",
+      "instructions": "Does `slice` edit a file that other slices are likely to edit too, such as a router, a shared type, a lockfile, or a central config?"
+    }
+  },
+  "review_risk": {
+    "correctness": {
+      "type": "noul",
+      "instructions": "Does the change in `diff` plausibly break the behaviour required by `acceptance`, for example a wrong condition, a missing case, or wrong data flow?"
+    },
+    "security": {
+      "type": "noul",
+      "instructions": "Does `diff` touch authentication, authorization, secrets, user input handling, SQL/shell construction, or cryptography?"
+    },
+    "tests_missing": {
+      "type": "noul",
+      "instructions": "Does `diff` change behaviour without adding or updating a test that exercises it?"
+    },
+    "scope_drift": {
+      "type": "noul",
+      "instructions": "Does `diff` change things unrelated to `acceptance`, such as refactors, formatting, or extra features?"
+    }
+  },
+  "review_verdict": {
+    "severity": {
+      "type": "score",
+      "instructions": "Given `diff`, `acceptance` and the risk signals in `risk`, how severe is the worst likely defect?",
+      "criteria": [
+        "none: no defect",
+        "minor: style or small gap",
+        "major: acceptance criterion likely not met",
+        "critical: security hole, data loss or broken build"
+      ]
+    },
+    "verdict": {
+      "type": "choice",
+      "instructions": "What should happen to the slice whose change is `diff`, judged against `acceptance` and `risk`?",
+      "criteria": {
+        "approve": "The change meets `acceptance` and nothing in `risk` is a real problem.",
+        "fix": "A specific, local defect a fresh worker can fix in the same files.",
+        "escalate": "Needs a frontier reviewer or a human: design doubt, security, or unclear intent."
+      }
+    }
+  },
+  "qa": {
+    "done": {
+      "type": "noul",
+      "instructions": "Does `evidence` show that `acceptance` is actually met by running software or passing tests, not merely claimed by the worker?"
+    },
+    "failure_kind": {
+      "type": "choice",
+      "instructions": "If `evidence` shows a failure, what kind is it?",
+      "criteria": {
+        "none": "No failure is shown.",
+        "code": "The slice's code or tests are wrong or missing, including a module, test or file the slice was supposed to create.",
+        "flaky": "Timing, network or order-dependent test noise unrelated to the change.",
+        "environment": "A missing third-party dependency, port, credential or system tool. Never a file or module the slice itself should have written."
+      }
+    }
+  },
+  "health": {
+    "worker_stuck": {
+      "type": "noul",
+      "instructions": "Do the `recent_actions` show the worker repeating the same failing step or command without changing approach?"
+    },
+    "off_track": {
+      "type": "noul",
+      "instructions": "Are the `recent_actions` mostly unrelated to `acceptance`, for example editing files or investigating topics the slice does not need?"
+    },
+    "meaningful_progress": {
+      "type": "noul",
+      "instructions": "Do the `recent_actions` move the work closer to meeting `acceptance`?"
+    }
+  }
+}

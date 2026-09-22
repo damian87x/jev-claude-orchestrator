@@ -1,0 +1,6 @@
+.env
+.env.*
+!.env.example
+.jev-orchestrator/
+__pycache__/
+*.pyc
