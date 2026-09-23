@@ -52,9 +52,3 @@ def load_slice(sid):
     path = os.path.join(jevlib.state_dir(), "slices", sid + ".json")
     return json.load(open(path)) if os.path.exists(path) else None
 
-
-def save_slice(s):
-    path = os.path.join(jevlib.state_dir(), "slices", s["id"] + ".json")
-    tmp = path + ".tmp"
-    json.dump(s, open(tmp, "w"), indent=2)
-    os.replace(tmp, path)

@@ -25,7 +25,7 @@ def build(html_path=None):
         if r.get("slice"):
             s = slices.setdefault(r["slice"], {"slice": r["slice"], "calls": 0, "blocks": 0, "steers": 0})
             s["calls"] += 1
-            s["blocks"] += r["event"] == "subagent_stop" and r.get("exit") != 0
+            s["blocks"] += r["event"] in ("gate", "subagent_stop") and r.get("status") == "fixing"
             s["steers"] += r.get("decision") == "steer"
             s["last_" + r["event"]] = r.get("decision")
     total = round(sum(r.get("cost_usd") or 0 for r in rs), 6)
@@ -41,7 +41,7 @@ def build(html_path=None):
 
 
 def write_html(path, res):
-    cols = ["slice", "last_triage", "last_check", "last_subagent_stop", "blocks", "steers", "calls"]
+    cols = ["slice", "last_triage", "last_check", "last_gate", "blocks", "steers", "calls"]
     body = "".join("<tr>%s</tr>" % "".join("<td>%s</td>" % html.escape(str(s.get(c, ""))) for c in cols)
                    for s in res["slices"])
     open(path, "w").write("""<!doctype html><html><head><meta charset="utf-8">

@@ -118,6 +118,51 @@ def check(s, ask, cwd=None):
     return dict(r, stage="review", gate_exit=code, qa=q)
 
 
+def save_slice(s):
+    path = os.path.join(slices_dir(), s["id"] + ".json")
+    with open(path + ".tmp", "w") as f:
+        json.dump(s, f, indent=2)
+    os.replace(path + ".tmp", path)
+
+
+def gate_slice(s, ask, cwd=None, max_blocks=2, agent=None):
+    """The finish gate every host (Claude SubagentStop, pi turn_end) calls when a worker tries to stop.
+
+    Returns {"block": bool, "message": str|None, "status", ...}. block=True means send the worker back.
+    approved/escalate are final: a fix goes to a fresh worker under a new slice id, never a re-check loop.
+    Any error escalates; nothing is ever approved on error.
+    """
+    if s.get("status") in ("approved", "escalate"):
+        return dict(block=False, status=s["status"], final=True)
+    try:
+        res = check(s, ask, cwd)
+    except Exception as e:  # fail closed: never approved, conductor decides
+        res = dict(decision="error", exit=2, reason="%s: %s" % (type(e).__name__, e))
+    blocks, code = s.get("blocks", 0), res["exit"]
+    if code == 1 and blocks < max_blocks:
+        s.update(status="fixing", blocks=blocks + 1, last=res.get("reason"))
+    else:
+        s.update(status="approved" if code == 0 else "escalate", last=res.get("reason"))
+    save_slice(s)
+    jevlib.log("gate", slice=s["id"], agent=agent, decision=res["decision"], exit=code, status=s["status"],
+               reason=res.get("reason"), files=res.get("files"), gate_exit=res.get("gate_exit"),
+               gate_tail=(res.get("gate_tail") or "")[-300:] or None, cwd=cwd,
+               cost_usd=round(ask.cost, 8), stub=ask.stub is not None)
+    out = dict(block=s["status"] == "fixing", status=s["status"], decision=res["decision"],
+               reason=res.get("reason"), message=None)
+    if out["block"]:
+        lines = ["Jev supervisor: slice %s is not done (%s: %s)." % (s["id"], res["decision"], res.get("reason"))]
+        if res.get("files"):
+            lines.append("Files: " + ", ".join(res["files"]))
+        if res.get("gate_tail"):
+            lines.append("Gate `%s` exit %s, output tail:\n%s" % (s["gate"], res.get("gate_exit"), res["gate_tail"][-800:]))
+        lines.append("Fix this specific problem inside your slice, rerun the gate, then finish. Never delete, move "
+                     "or revert files you did not create to get past this check; if the cause is outside your "
+                     "slice, say so in your final message and finish. Round %d of %d." % (blocks + 1, max_blocks))
+        out["message"] = "\n".join(lines)
+    return out
+
+
 def cmd_slice(a, ask):
     if a.action == "list":
         rows = [json.load(open(p)) for p in sorted(glob.glob(os.path.join(slices_dir(), "*.json")))]
@@ -148,6 +193,9 @@ def main():
     r.add_argument("--diff", required=True); r.add_argument("--allow")
     q = sub.add_parser("qa"); q.add_argument("--acceptance", required=True)
     q.add_argument("--evidence", required=True); q.add_argument("--exit-code", type=int, required=True)
+    g = sub.add_parser("gate"); g.add_argument("--slice", required=True); g.add_argument("--cwd")
+    g.add_argument("--max-blocks", type=int, default=2); g.add_argument("--agent")
+    h = sub.add_parser("health"); h.add_argument("--slice", required=True); h.add_argument("--actions", required=True)
     rp = sub.add_parser("report"); rp.add_argument("--html")
     a = p.parse_args()
     ask = Asker(a.answers[1:] if a.answers else None)
@@ -164,13 +212,18 @@ def main():
         elif a.cmd == "check":
             sl = load_slice(a.slice); slice_id = sl.get("id")
             res = check(sl, ask)
+        elif a.cmd == "gate":  # logs itself; exit 0 unless the gate itself crashed
+            res = dict(gate_slice(load_slice(a.slice), ask, a.cwd, a.max_blocks, a.agent), exit=0)
+        elif a.cmd == "health":
+            sl = load_slice(a.slice); slice_id = sl.get("id")
+            res = stages.health({"acceptance": sl["acceptance"], "recent_actions": json.loads(read(a.actions))}, ask)
         elif a.cmd == "review":
             res = stages.review(a.acceptance, read(a.diff), ask, (a.allow or "").split(","))
         else:
             res = stages.qa(a.acceptance, read(a.evidence), a.exit_code, ask)
     except Exception as e:  # malformed answers, bad input, API failure: fail closed
         res = dict(decision="error", exit=2, error="%s: %s" % (type(e).__name__, e))
-    if a.cmd not in ("slice", "report"):
+    if a.cmd not in ("slice", "report", "gate"):
         res.update(cost_usd=round(ask.cost, 8), jev_ms=round(ask.ms, 1))
         jevlib.log(a.cmd, slice=slice_id, decision=res["decision"], exit=res["exit"],
                    reason=res.get("reason") or res.get("error"), cost_usd=res["cost_usd"], stub=bool(a.answers))

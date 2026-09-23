@@ -64,6 +64,27 @@ class Flow(unittest.TestCase):
         rows = [json.loads(l) for l in open(os.path.join(self.repo, ".jev-orchestrator", "ledger.jsonl"))]
         self.assertEqual([(r["event"], r["slice"]) for r in rows], [("check", "S1")])
 
+    def test_gate_cli_blocks_then_approves(self):
+        # the host-neutral finish gate pi calls: JSON block/message, status kept in the packet
+        self.new_slice("python3 -c 'import add; assert add.add(1, 2) == 3'")
+        code, out = self.jevo("gate", "--slice", "S1", "--cwd", self.repo)
+        self.assertEqual((code, out["block"], out["status"]), (0, True, "fixing"))
+        self.assertIn("Never delete", out["message"])
+        open(os.path.join(self.repo, "add.py"), "w").write("def add(a, b):\n    return a + b\n")
+        code, out = self.jevo("gate", "--slice", "S1", "--cwd", self.repo)
+        self.assertEqual((out["block"], out["status"]), (False, "approved"))
+        code, out = self.jevo("gate", "--slice", "S1")
+        self.assertEqual((out["block"], out.get("final")), (False, True))
+
+    def test_health_cli_returns_steer(self):
+        self.new_slice("true")
+        with open(self.stub, "w") as f:
+            json.dump({"health": {"worker_stuck": {"noul": 0.9}, "off_track": {"noul": 0.1},
+                                  "meaningful_progress": {"noul": 0.1}}}, f)
+        code, out = self.jevo("health", "--slice", "S1", "--actions", '[{"tool": "bash", "target": "pytest"}]')
+        self.assertEqual(code, 0)
+        self.assertIn("stuck", out["steer"])
+
 
 class Health(unittest.TestCase):
     def ask(self, stuck, off):
