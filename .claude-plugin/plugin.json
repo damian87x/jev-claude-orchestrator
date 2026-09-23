@@ -1,6 +1,6 @@
 {
   "name": "jev-claude-orchestrator",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Madmax conductor for Claude Code: a frontier model plans many tiny slices, subagents write the code, and TypeSafe Jev makes every routing, review, QA and supervision decision in under a second for fractions of a cent.",
   "author": {"name": "Damian Borek"},
   "homepage": "https://github.com/damian87x/jev-claude-orchestrator",

@@ -89,6 +89,15 @@ class Hooks(unittest.TestCase):
         self.assertEqual(self.hook(STOP)[0], 0)
         self.assertEqual(self.status()["status"], "approved")
 
+    def test_slice_packet_stays_small_with_many_untracked_files(self):
+        # city-shift run: thousands of untracked paths made a 34 MB packet and broke triage
+        for i in range(3000):
+            with open(os.path.join(self.repo, "junk%d.txt" % i), "w") as f:
+                f.write("x")
+        subprocess.run([sys.executable, JEVO, "slice", "new", "--id", "S7", "--acceptance", "a", "--gate", "true"],
+                       cwd=self.repo, env=self.env, capture_output=True, check=True)
+        self.assertLess(os.path.getsize(os.path.join(self.repo, ".jev-orchestrator", "slices", "S7.json")), 2000)
+
     def test_final_status_is_not_rechecked(self):
         # live run: an escalated slice was re-gated on every later stop (24 calls for 2 slices)
         self.stub({"qa": DONE})

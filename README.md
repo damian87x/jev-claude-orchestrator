@@ -121,7 +121,7 @@ slice got re-gated on every stop; Jev labelled "the test module the worker never
 
 ## Status
 
-v0.1, experimental. Thresholds are starting guesses, pinned to `jev-1.13.0`, and not yet calibrated on
+v0.2, experimental. Thresholds are starting guesses, pinned to `jev-1.13.0`, and not yet calibrated on
 labelled data. Measure your own escalation rate before trusting it on a repo that matters.
 
 ## Credits

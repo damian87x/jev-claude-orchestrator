@@ -13,7 +13,7 @@ Prints one JSON decision. Exit 0 proceed/approve/pass, 1 fix/reject/retry, 3 esc
 Errors and malformed Jev answers never exit 0. Every decision is appended to
 .jev-orchestrator/ledger.jsonl. --answers @stub.json replays Jev answers (offline tests).
 """
-import argparse, fnmatch, glob, json, os, subprocess, sys
+import argparse, fnmatch, glob, json, os, subprocess, sys, time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 import jevlib, stages  # noqa: E402
@@ -75,11 +75,16 @@ def untracked(cwd=None):
             and not any(fnmatch.fnmatch(part, g) for part in f.split("/") for g in GENERATED)]
 
 
-def slice_diff(base, cwd=None, preexisting=()):
-    """Committed + uncommitted changes since base, plus files created since the slice was cut."""
+def slice_diff(base, cwd=None, since=0.0):
+    """Committed + uncommitted changes since base, plus untracked files written since the slice was cut.
+    Untracked files older than the slice are someone else's (a list of them can be huge, so we compare mtimes)."""
+    root = cwd or jevlib.project_dir()
     diff = jevlib.git("diff", base, cwd=cwd)
     for f in untracked(cwd):
-        if f in preexisting:
+        try:
+            if os.path.getmtime(os.path.join(root, f)) < since:
+                continue
+        except OSError:
             continue
         p = subprocess.run(["git", "diff", "--no-index", "/dev/null", f], cwd=cwd or jevlib.project_dir(),
                            capture_output=True, text=True)
@@ -108,7 +113,7 @@ def check(s, ask, cwd=None):
     q = stages.qa(s["acceptance"], log, code, ask)
     if q["exit"] != 0:
         return dict(q, stage="qa", gate_exit=code, gate_tail=log[-1500:])
-    r = stages.review(s["acceptance"], slice_diff(s["base"], cwd, s.get("untracked_base", [])), ask,
+    r = stages.review(s["acceptance"], slice_diff(s["base"], cwd, s.get("created", 0.0)), ask,
                       s.get("allow"))
     return dict(r, stage="review", gate_exit=code, qa=q)
 
@@ -124,7 +129,7 @@ def cmd_slice(a, ask):
         raise ValueError("not a git repository with a commit")
     s = dict(id=a.id, goal=a.goal or a.acceptance, acceptance=a.acceptance, gate=a.gate, base=base,
              allow=[g.strip() for g in (a.allow or "").split(",") if g.strip()], status="new",
-             untracked_base=untracked())
+             created=time.time())
     json.dump(s, open(os.path.join(slices_dir(), a.id + ".json"), "w"), indent=2)
     exclude_state_dir()
     return dict(decision="created", exit=0, slice=s, marker="JEV-SLICE: " + a.id)

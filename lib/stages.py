@@ -22,7 +22,8 @@ def out(decision, code, **info):
 
 def triage(slice_, ask, seats=None):
     seats = dict(DEFAULT_SEATS, **(seats or {}))
-    ans = ask("triage", {"slice": slice_})
+    brief = {k: slice_[k] for k in ("goal", "acceptance", "allow", "gate") if k in slice_}
+    ans = ask("triage", {"slice": brief})  # never the whole packet: bookkeeping fields can be huge
     tier_p = ans["tier"]["probabilities"]
     risk = float(ans["risk"]["score"])
     human = float(ans["needs_human"]["noul"])
@@ -54,7 +55,8 @@ def outside_allowlist(paths, allow):
 def review(acceptance, diff, ask, allow=None):
     paths = changed_paths(diff)
     if not diff.strip() or not paths:
-        return out("fix", 1, reason="empty diff: nothing was implemented")
+        return out("fix", 1, reason="empty diff: nothing implemented, or new files are gitignored "
+                                    "(commit them with git add -f)")
     outside = outside_allowlist(paths, allow)
     if outside:
         return out("fix", 1, reason="files outside allowlist", files=outside)
