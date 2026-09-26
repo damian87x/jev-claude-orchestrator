@@ -68,7 +68,8 @@ Exit codes: **0** proceed/approve/pass · **1** fix/reject/retry · **3** escala
    **Top-model fallback:** a worker run is one attempt (its stop-gate rounds are part of it). After
    **three** failed attempts on one slice (`S3`, `S3-fix1`, `S3-fix2`), cut **one** last fix slice for the
    highest model: `slice-worker-reasoning` with `model: "opus"` (Opus 5.5), or Astra through Codex
-   (`codex exec -m gpt-6-astra`). Pass it every earlier failure reason verbatim. The other model reviews
+   (`codex exec -m gpt-6-astra`). Pick the family that did not write the earlier attempts: Astra after
+   Claude workers, Opus 5.5 after Codex or other workers. Pass it every earlier failure reason verbatim. The other model reviews
    it: Astra reviews an Opus fix, `frontier-reviewer` (Opus) reviews an Astra fix. Note the switch in
    the scoreboard summary. If it still fails, the slice goes to the human list. Never make a fifth
    attempt and never drop to a cheaper tier. `needs_human`, security and authority escalations skip the
