@@ -65,6 +65,14 @@ Exit codes: **0** proceed/approve/pass · **1** fix/reject/retry · **3** escala
    reason (`.jev-orchestrator/ledger.jsonl` has the gate exit and output tail). Its `VERDICT: fix` → cut
    a **new** slice (`S3-fix1`) and a fresh worker, never re-run the old one. `human` → the human list.
    Triage `review: frontier` slices also get a frontier-reviewer pass even when Jev approved.
+   **Top-model fallback:** a worker run is one attempt (its stop-gate rounds are part of it). After
+   **three** failed attempts on one slice (`S3`, `S3-fix1`, `S3-fix2`), cut **one** last fix slice for the
+   highest model: `slice-worker-reasoning` with `model: "opus"` (Opus 5.5), or Astra through Codex
+   (`codex exec -m gpt-6-astra`). Pass it every earlier failure reason verbatim. The other model reviews
+   it: Astra reviews an Opus fix, `frontier-reviewer` (Opus) reviews an Astra fix. Note the switch in
+   the scoreboard summary. If it still fails, the slice goes to the human list. Never make a fifth
+   attempt and never drop to a cheaper tier. `needs_human`, security and authority escalations skip the
+   fallback and go straight to the human.
 6. **Integration verify** after each wave merges: full test/lint/typecheck. Red → find the culprit merge,
    revert it, requeue it as a fix slice.
 7. **Runtime proof** for user-facing goals: drive the running app (browser QA, or Reticle if installed).
@@ -81,4 +89,5 @@ Exit codes: **0** proceed/approve/pass · **1** fix/reject/retry · **3** escala
 - A worker's "done" is not evidence. The stop gate and your integration verify are.
 - Don't let dispatch outrun review: if escalations pile up past the cap, stop dispatching and clear them.
 - A high escalation rate means the slices are too big. Re-slice instead of raising thresholds.
+- Three failed attempts on a slice → one top-model attempt (Opus 5.5 or Astra, reviewed by the other) → human. No fifth attempt.
 - No push, PR, deploy or ticket write outside quoted authority. No invented prices or savings.
