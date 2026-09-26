@@ -8,10 +8,26 @@ BASE = os.environ.get("TYPESAFE_BASE_URL", "https://api.typesafe.ai").rstrip("/"
 MODEL = os.environ.get("JEV_MODEL", "jev-1.13.0")
 PRICE_PER_INPUT_TOKEN = 0.042e-6  # USD; output tokens are free
 PI_KEY_FILE = os.path.expanduser("~/.pi/agent/secrets/typesafe_api_key")
+FALLBACK_DEFAULT = "http://127.0.0.1:8765"  # autonoxis server (Polaris)
 
 
 class JevError(RuntimeError):
-    """Any failure to get a well-formed answer. Callers must fail closed."""
+    """Any failure to get a well-formed answer. Callers must fail closed.
+    `usage` keeps a billed-but-malformed Jev response's token count."""
+
+    def __init__(self, msg, usage=None):
+        super().__init__(msg)
+        self.usage = usage
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    """A redirect would carry the key to another host and let it answer as Jev: refuse (3xx -> HTTPError)."""
+
+    def redirect_request(self, *a, **kw):
+        return None
+
+
+OPENER = urllib.request.build_opener(NoRedirect)
 
 
 def project_dir():
@@ -57,20 +73,49 @@ def api_key():
     return key
 
 
-def system_one(state, questions, model=None, timeout=30):
-    body = {"state": state, "questions": questions, "model": model or MODEL}
+def fallback_urls():
+    """Local Jev-compatible servers (e.g. Polaris on :8765) tried in order when Jev fails.
+    JEVO_FALLBACK_URLS is a comma list; set it empty to disable."""
+    raw = os.environ.get("JEVO_FALLBACK_URLS", FALLBACK_DEFAULT)
+    return [u.strip().rstrip("/") for u in raw.split(",") if u.strip()]
+
+
+def malformed(out, questions):
+    """Why `out` is not a usable answer to `questions`, or "" when it is."""
+    if not isinstance(out, dict) or not isinstance(out.get("answers"), dict):
+        return "no answers"
+    def num(v, hi=1.0):  # a finite number in [0, hi]
+        return isinstance(v, (int, float)) and not isinstance(v, bool) and 0.0 <= v <= hi
+
+    for qid, q in questions.items():
+        a = out["answers"].get(qid)
+        t = q.get("type")
+        if not isinstance(a, dict):
+            return "missing " + qid
+        if t == "noul" and not num(a.get("noul")):
+            return "bad noul for " + qid
+        if t == "choice" and (not isinstance(a.get("choice"), str) or a["choice"] not in (q.get("criteria") or {})
+                              or not num(a.get("confidence"))):
+            return "bad choice for " + qid
+        if t == "score" and not num(a.get("score"), max(len(q.get("criteria") or ()) - 1, 0)):
+            return "bad score for " + qid
+    return ""
+
+
+def post(url, body, headers, timeout):
     req = urllib.request.Request(
-        BASE + "/v1/systemone", method="POST", data=json.dumps(body).encode(),
-        headers={"Authorization": "Bearer " + api_key(), "Content-Type": "application/json",
-                 "Accept": "application/json", "User-Agent": "jev-claude-orchestrator/0.1"})
+        url + "/v1/systemone", method="POST", data=json.dumps(body).encode(),
+        headers=dict(headers, **{"Content-Type": "application/json", "Accept": "application/json",
+                                 "User-Agent": "jev-claude-orchestrator/0.1"}))
     for attempt in range(4):
         try:
             t0 = time.perf_counter()
-            with urllib.request.urlopen(req, timeout=timeout) as r:
+            with OPENER.open(req, timeout=timeout) as r:
                 out = json.load(r)
+            bad = malformed(out, body["questions"])
+            if bad:
+                raise JevError("malformed response: " + bad, out.get("usage") if isinstance(out, dict) else None)
             out["_ms"] = round((time.perf_counter() - t0) * 1000, 1)
-            if not isinstance(out.get("answers"), dict):
-                raise JevError("malformed response: no answers")
             return out
         except urllib.error.HTTPError as e:
             if e.code == 429 and attempt < 3:
@@ -82,7 +127,27 @@ def system_one(state, questions, model=None, timeout=30):
     raise JevError("rate_limited")
 
 
+def system_one(state, questions, model=None, timeout=30):
+    """Jev first; on any failure, each local fallback in turn. The key is only ever sent to Jev.
+    `_backend` says who answered: "jev" or the fallback URL."""
+    body = {"state": state, "questions": questions, "model": model or MODEL}
+    try:
+        return dict(post(BASE, body, {"Authorization": "Bearer " + api_key()}, timeout), _backend="jev")
+    except JevError as e:
+        errors, jev_usage = ["jev: %s" % e], e.usage
+    for url in fallback_urls():
+        try:
+            return dict(post(url, body, {}, timeout), _backend=url, _jev_error=errors[0], _jev_usage=jev_usage)
+        except JevError as e:
+            errors.append("fallback %s: %s" % (url, e))
+    raise JevError("; ".join(errors), jev_usage)
+
+
 def cost(res):
+    """Jev's list price. A local fallback costs nothing we can measure, but a malformed Jev reply it
+    replaced may still have been billed."""
+    if res.get("_backend", "jev") != "jev":
+        return ((res.get("_jev_usage") or {}).get("input_tokens") or 0) * PRICE_PER_INPUT_TOKEN
     return res.get("usage", {}).get("input_tokens", 0) * PRICE_PER_INPUT_TOKEN
 
 

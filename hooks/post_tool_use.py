@@ -39,7 +39,7 @@ def main():
     ask = jevo.Asker(os.environ.get("JEVO_ANSWERS"))
     res = stages.health({"acceptance": s["acceptance"], "recent_actions": st["recent"]}, ask)
     jevlib.log("health", slice=s["id"], decision=res["decision"], exit=0, signals=res["signals"],
-               cost_usd=round(ask.cost, 8), stub=bool(ask.stub))
+               cost_usd=round(ask.cost, 8), stub=bool(ask.stub), backend=ask.backend)
     if res["steer"]:
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": res["steer"]}}))
     return 0

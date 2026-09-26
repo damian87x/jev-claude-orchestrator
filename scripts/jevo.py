@@ -29,14 +29,33 @@ class Asker:
         self.stub = json.load(open(stub)) if stub else None
         self.cost = 0.0
         self.ms = 0.0
+        self.backend = self.stub.get("_backend", "jev") if self.stub else "jev"
 
     def __call__(self, qset, state):
         if self.stub is not None:
             return self.stub[qset]
-        res = jevlib.system_one(state, stages.QUESTIONS[qset])
+        try:
+            res = jevlib.system_one(state, stages.QUESTIONS[qset])
+        except jevlib.JevError as e:  # every backend failed; a billed malformed Jev reply still costs
+            self.cost += jevlib.cost({"usage": e.usage or {}})
+            raise
         self.cost += jevlib.cost(res)
         self.ms += res.get("_ms", 0)
+        if res.get("_backend", "jev") != "jev":
+            self.backend = res["_backend"]
         return res["answers"]
+
+
+def conservative(res, ask):
+    """A local fallback model is unmeasured on these questions: it may route and send work back,
+    but its approval only escalates to a frontier reviewer."""
+    if ask.backend == "jev":
+        return res
+    res = dict(res, backend=ask.backend)
+    if res["exit"] == 0 and res["decision"] == "approve":
+        res.update(decision="escalate", exit=3, fallback_decision="approve",
+                   reason="approved by local fallback %s, not Jev: a frontier reviewer must confirm" % ask.backend)
+    return res
 
 
 def read(arg):
@@ -115,7 +134,7 @@ def check(s, ask, cwd=None):
         return dict(q, stage="qa", gate_exit=code, gate_tail=log[-1500:])
     r = stages.review(s["acceptance"], slice_diff(s["base"], cwd, s.get("created", 0.0)), ask,
                       s.get("allow"))
-    return dict(r, stage="review", gate_exit=code, qa=q)
+    return conservative(dict(r, stage="review", gate_exit=code, qa=q), ask)
 
 
 def save_slice(s):
@@ -147,7 +166,7 @@ def gate_slice(s, ask, cwd=None, max_blocks=2, agent=None):
     jevlib.log("gate", slice=s["id"], agent=agent, decision=res["decision"], exit=code, status=s["status"],
                reason=res.get("reason"), files=res.get("files"), gate_exit=res.get("gate_exit"),
                gate_tail=(res.get("gate_tail") or "")[-300:] or None, cwd=cwd,
-               cost_usd=round(ask.cost, 8), stub=ask.stub is not None)
+               cost_usd=round(ask.cost, 8), stub=ask.stub is not None, backend=ask.backend)
     out = dict(block=s["status"] == "fixing", status=s["status"], decision=res["decision"],
                reason=res.get("reason"), message=None)
     if out["block"]:
@@ -218,15 +237,18 @@ def main():
             sl = load_slice(a.slice); slice_id = sl.get("id")
             res = stages.health({"acceptance": sl["acceptance"], "recent_actions": json.loads(read(a.actions))}, ask)
         elif a.cmd == "review":
-            res = stages.review(a.acceptance, read(a.diff), ask, (a.allow or "").split(","))
+            res = conservative(stages.review(a.acceptance, read(a.diff), ask, (a.allow or "").split(",")), ask)
         else:
             res = stages.qa(a.acceptance, read(a.evidence), a.exit_code, ask)
     except Exception as e:  # malformed answers, bad input, API failure: fail closed
         res = dict(decision="error", exit=2, error="%s: %s" % (type(e).__name__, e))
     if a.cmd not in ("slice", "report", "gate"):
         res.update(cost_usd=round(ask.cost, 8), jev_ms=round(ask.ms, 1))
+        if ask.backend != "jev":
+            res["backend"] = ask.backend
         jevlib.log(a.cmd, slice=slice_id, decision=res["decision"], exit=res["exit"],
-                   reason=res.get("reason") or res.get("error"), cost_usd=res["cost_usd"], stub=bool(a.answers))
+                   reason=res.get("reason") or res.get("error"), cost_usd=res["cost_usd"], stub=bool(a.answers),
+                   backend=ask.backend)
     print(json.dumps(res, indent=2))
     sys.exit(res["exit"])
 

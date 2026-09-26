@@ -54,6 +54,16 @@ first match wins:
 
 Options (`/plugin` → configure): `health_every` (default 8 tool calls, 0 = off), `max_blocks` (default 2).
 
+**Local fallback.** If Jev fails (no key, network, HTTP error, rate limit, malformed answer), jevo asks
+each server in `JEVO_FALLBACK_URLS` in turn. That is a comma list, default `http://127.0.0.1:8765`,
+which is where the [autonoxis Polaris](https://huggingface.co/damianborek/polaris-3) server runs; set it
+empty to turn the fallback off. Any Jev-compatible `POST /v1/systemone` server works. The Jev key is
+never sent to a fallback. A fallback can route work and send it back to fix, but **it can never approve a
+slice**: its approval becomes `escalate`, so a frontier reviewer has to confirm. Polaris was not trained
+on these question sets, and in a live check it passed QA but escalated a correct diff. Each decision
+records `backend` in the ledger, and fallback cost is logged as 0. If no fallback answers either, the
+stage exits 2 and escalates, as before.
+
 ## Use
 
 ```text

@@ -21,8 +21,13 @@ plugin's hooks supervise workers while they run:
 
 `J="<this skill's base directory>/../../scripts/jevo.py"`, then run `python3 $J slice list`.
 The Jev key comes from `TYPESAFE_API_KEY`, else `TYPESAFE_API_KEY=` in the project's `.env`,
-else `~/.pi/agent/secrets/typesafe_api_key`. With no key, every stage exits 2. Treat that as escalate;
-never skip a stage.
+else `~/.pi/agent/secrets/typesafe_api_key`. With no key, or with Jev failing, jevo uses the local fallback
+below. Only when no backend answers does a stage exit 2. Treat that as escalate; never skip a stage.
+
+**Fallback when Jev is down:** jevo then asks the local servers in `JEVO_FALLBACK_URLS`, default
+`http://127.0.0.1:8765` (Polaris); set it empty to disable. A fallback may route slices and send them
+back to fix, but it can't approve one: its approval returns exit 3 with `backend` and `fallback_decision:
+approve`, and you then dispatch `frontier-reviewer`. If no backend answers, the stage exits 2.
 
 ## Commands
 
