@@ -108,9 +108,13 @@ It finds the worker's transcript from the agent id, and uses its modification ti
 clock. It also sends Jev the tool call that has not returned (`pending_action`). At 60 minutes total, or
 15 minutes with no activity, it asks **Jev only**. The local fallback is never used here.
 
-- **extend**: Jev sees steady progress. The watch adds 30 minutes, silently, once.
+- **extend**: Jev sees steady progress and is sure nothing is hung. The watch adds 30 minutes,
+  silently, once.
 - **unstick**: the pending call looks like it will wait forever. The watch exits 1, and the conductor
   stops that worker and re-dispatches.
+- **unsure → call back**: a call is still running and Jev can't tell whether it's hung (hung between
+  0.2 and 0.7). The watch never extends. It exits 3 with `unsure: true` and the `pending_action`, so the
+  conductor looks at the command itself.
 - **escalate**: anything else, including any Jev error. The watch exits 3, and the conductor decides.
 
 The watch never kills anything itself. It exits 0 when the slice is `approved` or `escalate`. Otherwise,
@@ -119,11 +123,11 @@ stop it when the worker returns. Measured on live Jev (2026-09-27):
 | pending call, idle 40 min | hung | decision |
 |---|---|---|
 | `pnpm dev` | 0.87 | unstick |
-| `rm -rf *` in zsh | 0.30 | escalate |
+| `rm -rf *` in zsh | 0.30 | unsure → call back |
 | `pnpm vitest run` | 0.10 | escalate |
 
-So the zsh prompt is caught by the escalation, not recognized. The worker agents forbid such commands up
-front.
+Jev doesn't recognize the zsh prompt, so its answer lands in the unsure band and the call comes back to
+the conductor. The worker agents also forbid such commands up front.
 
 ## What's inside
 

@@ -57,6 +57,16 @@ class Watch(unittest.TestCase):
         self.assertEqual((code, out["decision"]), (3, "escalate"))
         self.assertEqual([r["decision"] for r in self.ledger()], ["extend", "escalate"])
 
+    def test_unsure_about_a_running_call_calls_back_instead_of_extending(self):
+        transcript = os.path.join(self.repo, "t.jsonl")
+        with open(transcript, "w") as f:
+            f.write(json.dumps({"message": {"content": [{"type": "tool_use", "id": "t1", "name": "Bash",
+                                                         "input": {"command": "rm -rf *"}}]}}) + "\n")
+        code, out = self.watch(watch_answers(0.3, 0.9), "--limit", "0", "--transcript", transcript)
+        self.assertEqual((code, out["decision"], out["unsure"]), (3, "escalate", True))
+        self.assertEqual(out["pending_action"], {"tool": "Bash", "target": "rm -rf *"})
+        self.assertEqual([r["decision"] for r in self.ledger()], ["escalate"])
+
     def test_idle_worker_triggers_before_the_wall_clock(self):
         code, out = self.watch(watch_answers(0.1, 0.1), "--limit", "3600", "--idle", "0")
         self.assertEqual((code, out["decision"]), (3, "escalate"))
