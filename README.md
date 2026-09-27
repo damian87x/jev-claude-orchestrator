@@ -43,6 +43,9 @@ the judgment, so a bad answer fails closed.
 /plugin install jev-claude-orchestrator@jev-claude-orchestrator
 ```
 
+The same files are on npm as [`jev-claude-orchestrator`](https://www.npmjs.com/package/jev-claude-orchestrator),
+for pinning a version or vendoring the `jevo.py` CLI into other runtimes.
+
 Or for one session: `claude --plugin-dir /path/to/jev-claude-orchestrator`.
 
 Requires `python3` (stdlib only) and `git`. Jev key ([console](https://console.typesafe.ai/settings/keys)),
