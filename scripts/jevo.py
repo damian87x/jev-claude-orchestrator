@@ -8,6 +8,7 @@
   jevo.py review --acceptance AC --diff @file|- [--allow globs]
   jevo.py qa     --acceptance AC --evidence @file|- --exit-code N
   jevo.py report [--html out.html]
+  jevo.py watch  --slice S1 --agent A1      # run in the background per worker; exits on done / unstick / escalate
 
 Prints one JSON decision. Exit 0 proceed/approve/pass, 1 fix/reject/retry, 3 escalate, 2 error.
 Errors and malformed Jev answers never exit 0. Every decision is appended to
@@ -25,8 +26,9 @@ GENERATED = ("__pycache__", "*.pyc", ".pytest_cache", "node_modules", ".omc", ".
 class Asker:
     """Live Jev, or a stub file keyed by question set. Tracks spend."""
 
-    def __init__(self, stub=None):
+    def __init__(self, stub=None, jev_only=False):
         self.stub = json.load(open(stub)) if stub else None
+        self.jev_only = jev_only
         self.cost = 0.0
         self.ms = 0.0
         self.backend = self.stub.get("_backend", "jev") if self.stub else "jev"
@@ -35,7 +37,7 @@ class Asker:
         if self.stub is not None:
             return self.stub[qset]
         try:
-            res = jevlib.system_one(state, stages.QUESTIONS[qset], qset=qset)
+            res = jevlib.system_one(state, stages.QUESTIONS[qset], qset=None if self.jev_only else qset)
         except jevlib.JevError as e:  # every backend failed; a billed malformed Jev reply still costs
             self.cost += jevlib.cost({"usage": e.usage or {}})
             raise
@@ -182,6 +184,74 @@ def gate_slice(s, ask, cwd=None, max_blocks=2, agent=None):
     return out
 
 
+def find_transcript(agent):
+    """A Claude Code subagent transcript: ~/.claude/projects/<project>/<session>/subagents/agent-<id>.jsonl."""
+    hits = glob.glob(os.path.expanduser("~/.claude/projects/*/*/subagents/agent-%s.jsonl" % agent))
+    return max(hits, key=os.path.getmtime) if hits else None
+
+
+def pending_action(transcript):
+    """The worker's tool call that has no result yet: the one a hang is stuck in. PostToolUse never sees it."""
+    calls, done = {}, set()
+    try:
+        for line in open(transcript):
+            content = (json.loads(line).get("message") or {}).get("content")
+            for part in content if isinstance(content, list) else ():
+                if part.get("type") == "tool_use":
+                    calls[part["id"]] = part
+                elif part.get("type") == "tool_result":
+                    done.add(part.get("tool_use_id"))
+    except (OSError, ValueError, AttributeError):
+        return None
+    open_calls = [c for i, c in calls.items() if i not in done]
+    if not open_calls:
+        return None
+    ti = open_calls[-1].get("input") or {}
+    what = ti.get("command") or ti.get("file_path") or ti.get("pattern") or ti.get("url") or ""
+    return {"tool": open_calls[-1].get("name"), "target": str(what)[:300]}
+
+
+def watch(slice_id, agent, ask, limit=3600, idle=900, extend=1800, poll=30, transcript=None):
+    """Wall-clock watchdog for one worker. A hung tool call emits no hook events, so health steering
+    never sees it; this does. Activity = mtime of the worker's transcript (found by agent id, or --transcript),
+    else of its PostToolUse state file. The transcript also shows the tool call still running.
+    On a limit, Jev ONLY decides (no local fallback): extend once silently, else return unstick / escalate
+    so the conductor acts. A Jev error escalates. Nothing is killed here."""
+    t0 = floor = time.time()
+    deadline, extended = t0 + limit, False
+    state = os.path.join(jevlib.state_dir(), "agents", agent + ".json")
+    while True:
+        transcript = transcript or find_transcript(agent)  # a fresh worker may not have written it yet
+        activity = transcript or state
+        s = load_slice(slice_id)
+        if s.get("status") in ("approved", "escalate"):
+            return dict(decision="done", exit=0, status=s["status"])
+        now = time.time()
+        try:
+            last = max(os.path.getmtime(activity), floor)
+        except OSError:
+            last = floor
+        if now >= deadline or now - last >= idle:
+            try:
+                recent = json.load(open(state)).get("recent", [])
+            except (OSError, ValueError):
+                recent = []
+            packet = dict(acceptance=s["acceptance"], elapsed_min=round((now - t0) / 60, 1),
+                          idle_min=round((now - last) / 60, 1), extended=extended, recent_actions=recent,
+                          pending_action=pending_action(transcript) if transcript else None)
+            try:
+                res = stages.watch(packet, ask)
+            except Exception as e:
+                res = dict(decision="escalate", exit=3, reason="Jev error: %s: %s" % (type(e).__name__, e))
+            jevlib.log("watch", slice=slice_id, agent=agent, decision=res["decision"], exit=res["exit"],
+                       reason=res.get("reason"), elapsed_min=packet["elapsed_min"], idle_min=packet["idle_min"],
+                       cost_usd=round(ask.cost, 8), stub=ask.stub is not None)
+            if res["decision"] != "extend":
+                return dict(res, elapsed_min=packet["elapsed_min"], idle_min=packet["idle_min"])
+            extended, deadline, floor = True, now + extend, now  # the idle clock restarts with the extension
+        time.sleep(poll)
+
+
 def cmd_slice(a, ask):
     if a.action == "list":
         rows = [json.load(open(p)) for p in sorted(glob.glob(os.path.join(slices_dir(), "*.json")))]
@@ -216,8 +286,12 @@ def main():
     g.add_argument("--max-blocks", type=int, default=2); g.add_argument("--agent")
     h = sub.add_parser("health"); h.add_argument("--slice", required=True); h.add_argument("--actions", required=True)
     rp = sub.add_parser("report"); rp.add_argument("--html")
+    w = sub.add_parser("watch"); w.add_argument("--slice", required=True); w.add_argument("--agent", required=True)
+    w.add_argument("--transcript"); w.add_argument("--poll", type=float, default=30)
+    for f, v in (("--limit", 3600), ("--idle", 900), ("--extend", 1800)):
+        w.add_argument(f, type=float, default=v, help="seconds (default %d)" % v)
     a = p.parse_args()
-    ask = Asker(a.answers[1:] if a.answers else None)
+    ask = Asker(a.answers[1:] if a.answers else None, jev_only=a.cmd == "watch")
     slice_id = None
     try:
         if a.cmd == "slice":
@@ -231,6 +305,8 @@ def main():
         elif a.cmd == "check":
             sl = load_slice(a.slice); slice_id = sl.get("id")
             res = check(sl, ask)
+        elif a.cmd == "watch":  # logs itself
+            res = watch(a.slice, a.agent, ask, a.limit, a.idle, a.extend, a.poll, a.transcript)
         elif a.cmd == "gate":  # logs itself; exit 0 unless the gate itself crashed
             res = dict(gate_slice(load_slice(a.slice), ask, a.cwd, a.max_blocks, a.agent), exit=0)
         elif a.cmd == "health":
@@ -242,7 +318,7 @@ def main():
             res = stages.qa(a.acceptance, read(a.evidence), a.exit_code, ask)
     except Exception as e:  # malformed answers, bad input, API failure: fail closed
         res = dict(decision="error", exit=2, error="%s: %s" % (type(e).__name__, e))
-    if a.cmd not in ("slice", "report", "gate"):
+    if a.cmd not in ("slice", "report", "gate", "watch"):
         res.update(cost_usd=round(ask.cost, 8), jev_ms=round(ask.ms, 1))
         if ask.backend != "jev":
             res["backend"] = ask.backend

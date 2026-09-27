@@ -96,6 +96,35 @@ State (slices, ledger, per-agent counters) lives in `.jev-orchestrator/`, which 
 
 Exit codes everywhere: `0` proceed/approve/pass · `1` fix/reject/retry · `3` escalate · `2` error (treat as escalate).
 
+**Worker watchdog.** Health steering only runs when a tool call returns, so a worker stuck in one call
+(an interactive prompt, a foreground dev server) is invisible to it. Start one watch per worker in the
+background right after dispatch:
+
+```
+python3 $J watch --slice S3 --agent <agent id>     # defaults: --limit 3600 --idle 900 --extend 1800 (seconds)
+```
+
+It finds the worker's transcript from the agent id, and uses its modification time as the activity
+clock. It also sends Jev the tool call that has not returned (`pending_action`). At 60 minutes total, or
+15 minutes with no activity, it asks **Jev only**. The local fallback is never used here.
+
+- **extend**: Jev sees steady progress. The watch adds 30 minutes, silently, once.
+- **unstick**: the pending call looks like it will wait forever. The watch exits 1, and the conductor
+  stops that worker and re-dispatches.
+- **escalate**: anything else, including any Jev error. The watch exits 3, and the conductor decides.
+
+The watch never kills anything itself. It exits 0 when the slice is `approved` or `escalate`. Otherwise,
+stop it when the worker returns. Measured on live Jev (2026-09-27):
+
+| pending call, idle 40 min | hung | decision |
+|---|---|---|
+| `pnpm dev` | 0.87 | unstick |
+| `rm -rf *` in zsh | 0.30 | escalate |
+| `pnpm vitest run` | 0.10 | escalate |
+
+So the zsh prompt is caught by the escalation, not recognized. The worker agents forbid such commands up
+front.
+
 ## What's inside
 
 | path | what |
@@ -106,7 +135,7 @@ Exit codes everywhere: `0` proceed/approve/pass · `1` fix/reject/retry · `3` e
 | `hooks/subagent_stop.py` | the "really done?" gate |
 | `hooks/post_tool_use.py` | stuck / off-track steering |
 | `lib/stages.py` | all policy: thresholds, vetoes, fail-closed rules |
-| `scripts/jevo.py` | CLI for slices, triage, check, review, qa, report |
+| `scripts/jevo.py` | CLI for slices, triage, check, review, qa, watch, report |
 
 ## Safety
 

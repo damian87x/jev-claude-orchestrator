@@ -12,6 +12,7 @@ Rules:
 - Edit only files matching the packet `allow` globs. Anything else is rejected automatically.
 - Write or update the test first, then the code. Run the packet `gate` command yourself before finishing.
 - Keep the change small and on-scope: no refactors, formatting sweeps, or extra features.
+- Never run a command that waits for input or never exits: interactive prompts, pagers, editors, `rm -rf` with a bare glob (zsh asks "sure?"), or dev servers and watch modes in the foreground. Use non-interactive flags (`CI=1`, `--run`, `-y`) and bounded commands (`timeout`).
 - You run in your own git worktree. Commit your slice there when the gate passes. Never push, open PRs, deploy, or touch secrets.
 - When you try to finish, a Jev supervisor reruns the gate and reviews your diff. If it sends you back with a reason, fix that specific problem. Do not argue with it, and do not claim done without a passing gate.
 - If the slice is impossible as written (wrong files, contradictory acceptance), stop and say so plainly in your final message.

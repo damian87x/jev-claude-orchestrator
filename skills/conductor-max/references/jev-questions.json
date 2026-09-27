@@ -96,5 +96,15 @@
       "type": "noul",
       "instructions": "Do the `recent_actions` move the work closer to meeting `acceptance`?"
     }
+  },
+  "watch": {
+    "hung": {
+      "type": "noul",
+      "instructions": "Is `pending_action` (the tool call the worker started and that has not returned; null when none) a command that will wait forever without input, for example rm -rf with a glob in zsh (asks 'sure?'), an interactive confirmation or prompt, a pager or editor, or a server or watch mode started in the foreground?"
+    },
+    "progressing": {
+      "type": "noul",
+      "instructions": "Do the `recent_actions` show steady progress toward `acceptance`, so that more time is likely to finish the slice?"
+    }
   }
 }

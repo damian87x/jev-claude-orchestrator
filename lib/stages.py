@@ -117,3 +117,14 @@ def health(packet, ask):
     else:
         msg = None
     return out("steer" if msg else "continue", 0, steer=msg, signals=p)
+
+
+def watch(packet, ask):
+    """A worker hit its wall-clock or idle limit. Jev picks unstick / extend (once) / escalate."""
+    a = ask("watch", packet)
+    p = {k: float(v["noul"]) for k, v in a.items()}
+    if p["hung"] >= 0.7:
+        return out("unstick", 1, reason="the last action looks like a command waiting forever", signals=p)
+    if p["progressing"] >= 0.7 and not packet.get("extended"):
+        return out("extend", 0, reason="still making progress", signals=p)
+    return out("escalate", 3, reason="over its time limit without clear progress", signals=p)

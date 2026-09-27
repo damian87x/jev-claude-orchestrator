@@ -37,6 +37,7 @@ python3 $J slice new --id S3 --goal "..." --acceptance "..." --allow 'src/cart.p
 python3 $J triage --slice S3          # tier/seat, risk, wave, needs_human
 python3 $J check  --slice S3          # gate -> Jev QA -> Jev staged review (the stop hook runs this too)
 python3 $J slice list                 # status per slice: new / fixing / approved / escalate
+python3 $J watch  --slice S3 --agent <id>   # per-worker watchdog, run in the background
 python3 $J report --html .jev-orchestrator/scoreboard.html
 ```
 
@@ -48,6 +49,7 @@ Exit codes: **0** proceed/approve/pass · **1** fix/reject/retry · **3** escala
 | qa | runs the gate; parses failure counts; exit code | failing: code / flaky / environment · green: does the evidence show the AC met? | flaky ≥ 0.7 → retry; env ≥ 0.7 → escalate; green needs done ≥ 0.8 |
 | review | empty diff, files outside `allow`, secret patterns, diff > 60k | risk nouls, then severity + verdict (two staged calls) | security ≥ 0.5 / verdict escalate / severity ≥ 2.5 / confidence < 0.6 → escalate; fix / severity ≥ 1.5 / drift ≥ 0.7 → fix |
 | health | — | stuck, off_track, progress | stuck or off_track ≥ 0.7 → steer |
+| watch | wall clock ≥ 60 min or idle ≥ 15 min; the tool call still running | hung, progressing | Jev only (no fallback). hung ≥ 0.7 → unstick (exit 1); progressing ≥ 0.7 → extend 30 min, once; else or Jev error → escalate (exit 3) |
 
 ## Loop
 
@@ -66,6 +68,10 @@ Exit codes: **0** proceed/approve/pass · **1** fix/reject/retry · **3** escala
    **The worker prompt must start with `JEV-SLICE: <id>`** (that's how the hooks find the slice), then
    the packet inline (the slice file isn't visible inside the worktree), then "write the test first,
    commit in your worktree, never push".
+   **Right after dispatch, start one watchdog per worker** with `run_in_background`:
+   `python3 $J watch --slice <id> --agent <agent id>`. Don't poll the worker yourself. The watch wakes you
+   only by exiting: `unstick` means stop that worker and re-dispatch the slice; `escalate` means decide
+   yourself (frontier review, re-slice or human). When the worker returns first, stop its watch.
 5. **Collect.** When a worker returns, read `slice list`. `approved` → merge that worker's worktree
    branch in dependency order. `escalate` → dispatch `frontier-reviewer` with the slice id and the ledger
    reason (`.jev-orchestrator/ledger.jsonl` has the gate exit and output tail). Its `VERDICT: fix` → cut
@@ -94,6 +100,7 @@ Exit codes: **0** proceed/approve/pass · **1** fix/reject/retry · **3** escala
 - Jev can't count or do arithmetic: numbers are parsed in code; Jev only gives the judgment.
 - One writer per file per wave. Two slices on one file → serialize them or merge them into one slice.
 - A worker's "done" is not evidence. The stop gate and your integration verify are.
+- Every worker has a watchdog. A hung tool call sends no hook events, so without one a stuck worker waits forever.
 - Don't let dispatch outrun review: if escalations pile up past the cap, stop dispatching and clear them.
 - A high escalation rate means the slices are too big. Re-slice instead of raising thresholds.
 - Three failed attempts on a slice → one top-model attempt (Opus 5.5 or Astra, reviewed by the other) → human. No fifth attempt.
