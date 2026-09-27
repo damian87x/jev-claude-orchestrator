@@ -1,0 +1,34 @@
+{
+  "name": "jev-claude-orchestrator",
+  "version": "0.3.1",
+  "description": "Madmax conductor for Claude Code: a frontier model plans many tiny slices, subagents write the code, and TypeSafe Jev makes every routing, review, QA and supervision decision in under a second for fractions of a cent.",
+  "keywords": [
+    "claude-code-plugin",
+    "claude-code",
+    "jev",
+    "typesafe",
+    "orchestrator",
+    "subagents",
+    "code-review",
+    "qa"
+  ],
+  "license": "MIT",
+  "author": "Damian Borek",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/damian87x/jev-claude-orchestrator.git"
+  },
+  "homepage": "https://github.com/damian87x/jev-claude-orchestrator#readme",
+  "files": [
+    ".claude-plugin/",
+    "agents/",
+    "hooks/",
+    "lib/",
+    "scripts/",
+    "skills/",
+    "!**/__pycache__",
+    "!**/*.pyc",
+    "README.md",
+    "LICENSE"
+  ]
+}
