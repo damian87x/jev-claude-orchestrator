@@ -49,7 +49,7 @@ Exit codes: **0** proceed/approve/pass · **1** fix/reject/retry · **3** escala
 | qa | runs the gate; parses failure counts; exit code | failing: code / flaky / environment · green: does the evidence show the AC met? | flaky ≥ 0.7 → retry; env ≥ 0.7 → escalate; green needs done ≥ 0.8 |
 | review | empty diff, files outside `allow`, secret patterns, diff > 60k | risk nouls, then severity + verdict (two staged calls) | security ≥ 0.5 / verdict escalate / severity ≥ 2.5 / confidence < 0.6 → escalate; fix / severity ≥ 1.5 / drift ≥ 0.7 → fix |
 | health | — | stuck, off_track, progress | stuck or off_track ≥ 0.7 → steer |
-| watch | wall clock ≥ 60 min or idle ≥ 15 min; the tool call still running | hung, progressing | Jev only (no fallback). hung ≥ 0.7 → unstick (exit 1); progressing ≥ 0.7 → extend 30 min, once; else or Jev error → escalate (exit 3) |
+| watch | wall clock ≥ 60 min or idle ≥ 15 min; the tool call still running | hung, progressing | Jev only (no fallback). hung ≥ 0.7 → unstick (exit 1); a call still running and hung ≥ 0.2 → unsure, call back (exit 3, `unsure`, `pending_action`); progressing ≥ 0.7 → extend 30 min, once; else or Jev error → escalate (exit 3) |
 
 ## Loop
 
@@ -71,7 +71,8 @@ Exit codes: **0** proceed/approve/pass · **1** fix/reject/retry · **3** escala
    **Right after dispatch, start one watchdog per worker** with `run_in_background`:
    `python3 $J watch --slice <id> --agent <agent id>`. Don't poll the worker yourself. The watch wakes you
    only by exiting: `unstick` means stop that worker and re-dispatch the slice; `escalate` means decide
-   yourself (frontier review, re-slice or human). When the worker returns first, stop its watch.
+   yourself (frontier review, re-slice or human). With `unsure: true`, Jev couldn't judge the running
+   `pending_action`: read the command and decide whether to stop the worker. When the worker returns first, stop its watch.
 5. **Collect.** When a worker returns, read `slice list`. `approved` → merge that worker's worktree
    branch in dependency order. `escalate` → dispatch `frontier-reviewer` with the slice id and the ledger
    reason (`.jev-orchestrator/ledger.jsonl` has the gate exit and output tail). Its `VERDICT: fix` → cut

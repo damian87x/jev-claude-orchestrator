@@ -125,6 +125,9 @@ def watch(packet, ask):
     p = {k: float(v["noul"]) for k, v in a.items()}
     if p["hung"] >= 0.7:
         return out("unstick", 1, reason="the last action looks like a command waiting forever", signals=p)
+    if packet.get("pending_action") and p["hung"] >= 0.2:  # Jev can't tell: never extend, the conductor looks
+        return out("escalate", 3, reason="Jev is unsure whether the running call is hung: conductor, check it",
+                   unsure=True, signals=p)
     if p["progressing"] >= 0.7 and not packet.get("extended"):
         return out("extend", 0, reason="still making progress", signals=p)
     return out("escalate", 3, reason="over its time limit without clear progress", signals=p)
