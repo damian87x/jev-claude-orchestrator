@@ -74,6 +74,7 @@ class Fallback(unittest.TestCase):
         Local.seen.clear()
         self.env = dict(os.environ)
         os.environ["TYPESAFE_API_KEY"] = "test-key"
+        os.environ["JEVO_FALLBACK_STAGES"] = "triage,qa,review,health"  # chain tests; the default has its own test
         self.base, jevlib.BASE = jevlib.BASE, DEAD
 
     def tearDown(self):
@@ -81,7 +82,7 @@ class Fallback(unittest.TestCase):
         jevlib.BASE = self.base
 
     def ask(self):
-        return jevlib.system_one({"x": 1}, {"done": {"type": "noul", "instructions": "?"}}, timeout=5)
+        return jevlib.system_one({"x": 1}, {"done": {"type": "noul", "instructions": "?"}}, timeout=5, qset="qa")
 
     def test_jev_down_uses_local_fallback_without_the_key(self):
         os.environ["JEVO_FALLBACK_URLS"] = "%s,%s" % (DEAD, self.url)
@@ -116,6 +117,30 @@ class Fallback(unittest.TestCase):
         os.environ.pop("JEVO_FALLBACK_URLS", None)
         self.assertEqual(jevlib.fallback_urls(), ["http://127.0.0.1:8765"])
 
+    def test_default_fallback_answers_triage_only(self):
+        os.environ.pop("JEVO_FALLBACK_STAGES", None)
+        self.assertEqual(jevlib.fallback_stages(), {"triage"})
+        os.environ["JEVO_FALLBACK_URLS"] = self.url
+        with self.assertRaisesRegex(jevlib.JevError, "no fallback for qa"):
+            jevlib.system_one({}, {"done": {"type": "noul"}}, timeout=5, qset="qa")
+        self.assertEqual(Local.seen, [])  # never even asked
+        tri = {"needs_human": {"type": "noul"}}
+        ANSWERS["needs_human"] = {"noul": 0.1}
+        self.assertEqual(jevlib.system_one({}, tri, timeout=5, qset="triage")["_backend"], self.url)
+
+    def test_call_without_stage_never_falls_back(self):
+        os.environ["JEVO_FALLBACK_URLS"] = self.url
+        with self.assertRaisesRegex(jevlib.JevError, "no fallback for an unnamed stage"):
+            jevlib.system_one({}, {"done": {"type": "noul"}}, timeout=5)
+        self.assertEqual(Local.seen, [])
+
+    def test_fallback_stages_are_configurable(self):
+        os.environ["JEVO_FALLBACK_URLS"] = self.url
+        os.environ["JEVO_FALLBACK_STAGES"] = "triage,qa"
+        with self.assertRaisesRegex(jevlib.JevError, "no fallback for review"):
+            jevlib.system_one({}, {"done": {"type": "noul"}}, timeout=5, qset="review_risk")
+        self.assertEqual(jevlib.system_one({}, {"done": {"type": "noul"}}, timeout=5, qset="qa")["_backend"], self.url)
+
     def test_jev_redirect_is_refused_so_key_never_follows(self):
         FakeJev.reply = (303, {"Location": self.url + "/v1/systemone"}, {})
         jevlib.BASE = self.jev_url
@@ -143,9 +168,9 @@ class Fallback(unittest.TestCase):
                     {"verdict": {"choice": "ship", "confidence": 0.9}}, {"verdict": {"choice": "fix", "confidence": 2}},
                     {"severity": {"score": float("inf")}}, {"severity": {"score": 3}}):
             FakeJev.reply = (200, {}, {"answers": dict(ok, **bad)})
-            self.assertEqual(jevlib.system_one({}, qs, timeout=5)["_backend"], self.url, bad)
+            self.assertEqual(jevlib.system_one({}, qs, timeout=5, qset="review_verdict")["_backend"], self.url, bad)
         FakeJev.reply = (200, {}, {"answers": ok})
-        self.assertEqual(jevlib.system_one({}, qs, timeout=5)["_backend"], "jev")
+        self.assertEqual(jevlib.system_one({}, qs, timeout=5, qset="review_verdict")["_backend"], "jev")
 
     def test_billed_malformed_reply_costs_even_when_everything_fails(self):
         os.environ["JEVO_FALLBACK_URLS"] = ""
@@ -168,7 +193,8 @@ class Fallback(unittest.TestCase):
         repo = tempfile.mkdtemp(prefix="jevo-fb-")
         sh(repo, "git", "init", "-q", "-b", "main")
         sh(repo, "git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "base")
-        env = dict(os.environ, CLAUDE_PROJECT_DIR=repo, TYPESAFE_BASE_URL=DEAD, JEVO_FALLBACK_URLS=self.url)
+        env = dict(os.environ, CLAUDE_PROJECT_DIR=repo, TYPESAFE_BASE_URL=DEAD, JEVO_FALLBACK_URLS=self.url,
+                   JEVO_FALLBACK_STAGES="triage,qa,review")
         run = lambda *a: subprocess.run([sys.executable, JEVO, *a], cwd=repo, capture_output=True, text=True, env=env)
         run("slice", "new", "--id", "S1", "--acceptance", "add.py defines add", "--allow", "add.py", "--gate", "true")
         open(os.path.join(repo, "add.py"), "w").write("def add(a, b):\n    return a + b\n")

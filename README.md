@@ -57,12 +57,21 @@ Options (`/plugin` → configure): `health_every` (default 8 tool calls, 0 = off
 **Local fallback.** If Jev fails (no key, network, HTTP error, rate limit, malformed answer), jevo asks
 each server in `JEVO_FALLBACK_URLS` in turn. That is a comma list, default `http://127.0.0.1:8765`,
 which is where the [autonoxis Polaris](https://huggingface.co/damianborek/polaris-3) server runs; set it
-empty to turn the fallback off. Any Jev-compatible `POST /v1/systemone` server works. The Jev key is
-never sent to a fallback. A fallback can route work and send it back to fix, but **it can never approve a
-slice**: its approval becomes `escalate`, so a frontier reviewer has to confirm. Polaris was not trained
-on these question sets, and in a live check it passed QA but escalated a correct diff. Each decision
-records `backend` in the ledger, and fallback cost is logged as 0. If no fallback answers either, the
-stage exits 2 and escalates, as before.
+empty to turn the fallback off. By default the fallback answers **triage only** (`JEVO_FALLBACK_STAGES`,
+default `triage`). QA and review escalate (exit 2) and the health check is skipped for that tool call, because Polaris
+is trained for conductor routing and not for those questions. The Jev key is never sent to a fallback, and redirects are
+refused. If you do widen the stages, a fallback still can never approve a slice: its approval becomes
+`escalate`. Each decision records `backend` in the ledger, and fallback cost is logged as 0.
+
+Measured on 334 real conductor-max packets (2026-09-27). The gold is the majority of Opus 5.5, Astra and
+Grok 4.7, and the test was pre-registered:
+
+| stage | Jev | Polaris 3 | unsafe (Jev / Polaris) |
+|---|---|---|---|
+| triage | 46.3% | **59.3%** | 59 / 35 (tier set too low) |
+| qa | **96.3%** | 34.1% | 3 / 54 (passed when unproven) |
+| review | 9.5% | 4.8%; answered 2/21 (2048-token limit) | 1 / 0 |
+| health | **95.3%** | 21.5%; answered 25/107 | 0 / 0 |
 
 ## Use
 

@@ -35,7 +35,7 @@ class Asker:
         if self.stub is not None:
             return self.stub[qset]
         try:
-            res = jevlib.system_one(state, stages.QUESTIONS[qset])
+            res = jevlib.system_one(state, stages.QUESTIONS[qset], qset=qset)
         except jevlib.JevError as e:  # every backend failed; a billed malformed Jev reply still costs
             self.cost += jevlib.cost({"usage": e.usage or {}})
             raise

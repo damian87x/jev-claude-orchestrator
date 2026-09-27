@@ -9,6 +9,8 @@ MODEL = os.environ.get("JEV_MODEL", "jev-1.13.0")
 PRICE_PER_INPUT_TOKEN = 0.042e-6  # USD; output tokens are free
 PI_KEY_FILE = os.path.expanduser("~/.pi/agent/secrets/typesafe_api_key")
 FALLBACK_DEFAULT = "http://127.0.0.1:8765"  # autonoxis server (Polaris)
+# Polaris is trained on conductor routing, which is triage here; measured unsafe on qa (docs: README "Local fallback").
+FALLBACK_STAGES_DEFAULT = "triage"
 
 
 class JevError(RuntimeError):
@@ -102,6 +104,12 @@ def malformed(out, questions):
     return ""
 
 
+def fallback_stages():
+    """Stages a fallback may answer: triage, qa, review, health. JEVO_FALLBACK_STAGES is a comma list."""
+    raw = os.environ.get("JEVO_FALLBACK_STAGES", FALLBACK_STAGES_DEFAULT)
+    return {s.strip() for s in raw.split(",") if s.strip()}
+
+
 def post(url, body, headers, timeout):
     req = urllib.request.Request(
         url + "/v1/systemone", method="POST", data=json.dumps(body).encode(),
@@ -127,14 +135,18 @@ def post(url, body, headers, timeout):
     raise JevError("rate_limited")
 
 
-def system_one(state, questions, model=None, timeout=30):
-    """Jev first; on any failure, each local fallback in turn. The key is only ever sent to Jev.
-    `_backend` says who answered: "jev" or the fallback URL."""
+def system_one(state, questions, model=None, timeout=30, qset=None):
+    """Jev first; on any failure, each local fallback in turn, only if the fallback may answer `qset`'s stage
+    (a call without `qset` never falls back).
+    The key is only ever sent to Jev. `_backend` says who answered: "jev" or the fallback URL."""
     body = {"state": state, "questions": questions, "model": model or MODEL}
     try:
         return dict(post(BASE, body, {"Authorization": "Bearer " + api_key()}, timeout), _backend="jev")
     except JevError as e:
         errors, jev_usage = ["jev: %s" % e], e.usage
+    stage = (qset or "").split("_")[0]  # review_risk / review_verdict -> review; no qset -> no fallback
+    if stage not in fallback_stages():
+        raise JevError("%s; no fallback for %s (JEVO_FALLBACK_STAGES)" % (errors[0], stage or "an unnamed stage"), jev_usage)
     for url in fallback_urls():
         try:
             return dict(post(url, body, {}, timeout), _backend=url, _jev_error=errors[0], _jev_usage=jev_usage)

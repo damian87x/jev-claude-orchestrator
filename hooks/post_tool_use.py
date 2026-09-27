@@ -37,7 +37,12 @@ def main():
     if not s or every <= 0 or st["n"] % every:
         return 0
     ask = jevo.Asker(os.environ.get("JEVO_ANSWERS"))
-    res = stages.health({"acceptance": s["acceptance"], "recent_actions": st["recent"]}, ask)
+    try:
+        res = stages.health({"acceptance": s["acceptance"], "recent_actions": st["recent"]}, ask)
+    except Exception as e:  # skip this check, but keep what it cost and who was asked
+        jevlib.log("health", slice=s["id"], decision="error", exit=0, reason="%s: %s" % (type(e).__name__, e),
+                   cost_usd=round(ask.cost, 8), stub=bool(ask.stub), backend=ask.backend)
+        return 0
     jevlib.log("health", slice=s["id"], decision=res["decision"], exit=0, signals=res["signals"],
                cost_usd=round(ask.cost, 8), stub=bool(ask.stub), backend=ask.backend)
     if res["steer"]:
