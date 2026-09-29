@@ -131,7 +131,7 @@ def check(s, ask, cwd=None):
     if code != 0 and missing:  # red gate + a named slice file never written: the worker's job, not the environment
         return dict(decision="fix", exit=1, reason="gate failed and slice files are missing", files=missing,
                     stage="qa", gate_exit=code, gate_tail=log[-1500:])
-    q = stages.qa(s["acceptance"], log, code, ask)
+    q = conservative(stages.qa(s["acceptance"], log, code, ask), ask)  # a fallback's QA pass never reaches review
     if q["exit"] != 0:
         return dict(q, stage="qa", gate_exit=code, gate_tail=log[-1500:])
     r = stages.review(s["acceptance"], slice_diff(s["base"], cwd, s.get("created", 0.0)), ask,

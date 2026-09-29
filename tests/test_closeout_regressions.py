@@ -300,6 +300,44 @@ class Q1(unittest.TestCase):
         self.assertEqual((r["decision"], r["exit"]), ("fix", 1))
 
 
+class Q1b(unittest.TestCase):
+    """check() and gate_slice() stop at a fallback-answered QA pass; Jev-answered QA pass proceeds to review."""
+    QA = Q1.QA
+    APPROVE = dict(decision="approve", exit=0, files=["a.py"])
+
+    def run_path(self, backend, fn):
+        import tempfile
+        d = tempfile.mkdtemp(prefix="jevo-q1b-")
+        stub = os.path.join(d, "stub.json")
+        json.dump(dict(self.QA, **({"_backend": backend} if backend else {})), open(stub, "w"))
+        s = dict(id="S1", gate="true", acceptance="x", base="HEAD", allow=[], created=0.0)
+        with mock.patch.dict(os.environ, CLAUDE_PROJECT_DIR=d), \
+                mock.patch.object(jevo.stages, "review", return_value=self.APPROVE) as review:
+            return fn(s, jevo.Asker(stub), d), review
+
+    def test_check_fallback_qa_pass_escalates_without_review(self):
+        res, review = self.run_path("http://127.0.0.1:1", lambda s, a, d: jevo.check(s, a, d))
+        self.assertEqual((res["exit"], res["decision"], res["fallback_decision"], res["stage"]),
+                         (3, "escalate", "pass", "qa"))
+        self.assertEqual(res["backend"], "http://127.0.0.1:1")
+        review.assert_not_called()
+
+    def test_check_jev_qa_pass_proceeds_to_review(self):
+        res, review = self.run_path(None, lambda s, a, d: jevo.check(s, a, d))
+        self.assertEqual((res["exit"], res["decision"], res["stage"]), (0, "approve", "review"))
+        review.assert_called_once()
+
+    def test_gate_fallback_qa_pass_is_escalate(self):
+        out, review = self.run_path("http://127.0.0.1:1", lambda s, a, d: jevo.gate_slice(s, a, d))
+        self.assertEqual((out["status"], out["decision"], out["block"]), ("escalate", "escalate", False))
+        review.assert_not_called()
+
+    def test_gate_jev_qa_pass_is_approved(self):
+        out, review = self.run_path(None, lambda s, a, d: jevo.gate_slice(s, a, d))
+        self.assertEqual((out["status"], out["decision"]), ("approved", "approve"))
+        review.assert_called_once()
+
+
 class DefaultFallbackOff(unittest.TestCase):
     def test_default_fallback_urls_empty(self):
         with mock.patch.dict(os.environ):

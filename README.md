@@ -100,6 +100,10 @@ State (slices, ledger, per-agent counters) lives in `.jev-orchestrator/`, which 
 
 Exit codes everywhere: `0` proceed/approve/pass · `1` fix/reject/retry · `3` escalate · `2` error (treat as escalate).
 
+The one exception is `jevo gate` (the hook entry point): it always exits `0` unless it crashes, so callers
+must read the JSON `status`/`decision` (`escalate` / `fixing` / `approved`), never the exit code. A QA pass
+answered by a fallback model, not Jev, is reported as `escalate` and never reaches review.
+
 **Worker watchdog.** Health steering only runs when a tool call returns, so a worker stuck in one call
 (an interactive prompt, a foreground dev server) is invisible to it. Start one watch per worker in the
 background right after dispatch:
