@@ -267,5 +267,45 @@ class F4(unittest.TestCase):
                 self.assertTrue(all(r.get("backend") == "jev" for r in rows), rows)
 
 
+class Q1(unittest.TestCase):
+    """A fallback may never produce an approving decision on any command; Jev-answered qa pass stays exit 0."""
+    QA = {"qa": {"done": {"noul": 0.95}, "failure_kind": {"choice": "none", "confidence": 0.9}}}
+
+    def qa(self, backend):
+        import subprocess, tempfile
+        d = tempfile.mkdtemp(prefix="jevo-q1-")
+        stub = os.path.join(d, "stub.json")
+        json.dump(dict(self.QA, **({"_backend": backend} if backend else {})), open(stub, "w"))
+        jevo_py = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "scripts", "jevo.py")
+        p = subprocess.run([sys.executable, jevo_py, "--answers", "@" + stub, "qa", "--acceptance", "x",
+                            "--evidence", "3 passed", "--exit-code", "0"],
+                           capture_output=True, text=True, env=dict(os.environ, CLAUDE_PROJECT_DIR=d))
+        return p.returncode, json.loads(p.stdout)
+
+    def test_standalone_qa_pass_from_fallback_escalates(self):
+        code, out = self.qa("http://127.0.0.1:1")
+        self.assertEqual((code, out["decision"], out["fallback_decision"]), (3, "escalate", "pass"))
+        self.assertIn("frontier", out["reason"])
+
+    def test_standalone_qa_pass_from_jev_still_exits_zero(self):
+        code, out = self.qa(None)
+        self.assertEqual((code, out["decision"]), (0, "pass"))
+
+    def test_conservative_covers_approve_and_pass_only(self):
+        ask = mock.Mock(backend="http://x")
+        for dec in ("approve", "pass"):
+            r = jevo.conservative(dict(decision=dec, exit=0), ask)
+            self.assertEqual((r["decision"], r["exit"], r["fallback_decision"]), ("escalate", 3, dec))
+        r = jevo.conservative(dict(decision="fix", exit=1), ask)
+        self.assertEqual((r["decision"], r["exit"]), ("fix", 1))
+
+
+class DefaultFallbackOff(unittest.TestCase):
+    def test_default_fallback_urls_empty(self):
+        with mock.patch.dict(os.environ):
+            os.environ.pop("JEVO_FALLBACK_URLS", None)
+            self.assertEqual(jevlib.fallback_urls(), [])
+
+
 if __name__ == "__main__":
     unittest.main()

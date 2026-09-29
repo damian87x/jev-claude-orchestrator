@@ -8,7 +8,7 @@ BASE = os.environ.get("TYPESAFE_BASE_URL", "https://api.typesafe.ai").rstrip("/"
 MODEL = os.environ.get("JEV_MODEL", "jev-1.13.0")
 PRICE_PER_INPUT_TOKEN = 0.042e-6  # USD; output tokens are free
 PI_KEY_FILE = os.path.expanduser("~/.pi/agent/secrets/typesafe_api_key")
-FALLBACK_DEFAULT = "http://127.0.0.1:8765"  # autonoxis server (Polaris)
+FALLBACK_DEFAULT = ""  # off unless JEVO_FALLBACK_URLS is set
 # Polaris is trained on conductor routing, which is triage here; measured unsafe on qa (docs: README "Local fallback").
 FALLBACK_STAGES_DEFAULT = "triage"
 
@@ -76,8 +76,8 @@ def api_key():
 
 
 def fallback_urls():
-    """Local Jev-compatible servers (e.g. Polaris on :8765) tried in order when Jev fails.
-    JEVO_FALLBACK_URLS is a comma list; set it empty to disable."""
+    """Jev-compatible servers tried in order when Jev fails. Opt-in: JEVO_FALLBACK_URLS is a comma
+    list (e.g. a local Polaris server) and defaults to empty, meaning no fallback."""
     raw = os.environ.get("JEVO_FALLBACK_URLS", FALLBACK_DEFAULT)
     return [u.strip().rstrip("/") for u in raw.split(",") if u.strip()]
 

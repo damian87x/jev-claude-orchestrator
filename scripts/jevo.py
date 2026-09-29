@@ -50,12 +50,12 @@ class Asker:
 
 def conservative(res, ask):
     """A local fallback model is unmeasured on these questions: it may route and send work back,
-    but its approval only escalates to a frontier reviewer."""
+    but its approval ("approve" or QA "pass") only escalates to a frontier reviewer."""
     if ask.backend == "jev":
         return res
     res = dict(res, backend=ask.backend)
-    if res["exit"] == 0 and res["decision"] == "approve":
-        res.update(decision="escalate", exit=3, fallback_decision="approve",
+    if res["exit"] == 0 and res["decision"] in ("approve", "pass"):
+        res.update(decision="escalate", exit=3, fallback_decision=res["decision"],
                    reason="approved by local fallback %s, not Jev: a frontier reviewer must confirm" % ask.backend)
     return res
 
@@ -316,7 +316,7 @@ def main():
         elif a.cmd == "review":
             res = conservative(stages.review(a.acceptance, read(a.diff), ask, (a.allow or "").split(",")), ask)
         else:
-            res = stages.qa(a.acceptance, read(a.evidence), a.exit_code, ask)
+            res = conservative(stages.qa(a.acceptance, read(a.evidence), a.exit_code, ask), ask)
     except Exception as e:  # malformed answers, bad input, API failure: fail closed
         res = dict(decision="error", exit=2, error="%s: %s" % (type(e).__name__, e))
     if a.cmd not in ("slice", "report", "gate", "watch"):

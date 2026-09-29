@@ -113,9 +113,9 @@ class Fallback(unittest.TestCase):
         with self.assertRaisesRegex(jevlib.JevError, "fallback"):
             self.ask()
 
-    def test_default_is_local_polaris_port(self):
+    def test_default_is_no_fallback(self):
         os.environ.pop("JEVO_FALLBACK_URLS", None)
-        self.assertEqual(jevlib.fallback_urls(), ["http://127.0.0.1:8765"])
+        self.assertEqual(jevlib.fallback_urls(), [])
 
     def test_default_fallback_answers_triage_only(self):
         os.environ.pop("JEVO_FALLBACK_STAGES", None)

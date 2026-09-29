@@ -24,10 +24,10 @@ The Jev key comes from `TYPESAFE_API_KEY`, else `TYPESAFE_API_KEY=` in the proje
 else `~/.pi/agent/secrets/typesafe_api_key`. With no key, or with Jev failing, jevo uses the local fallback
 below. A stage exits 2 when Jev fails and the stage is not allowed a fallback (QA and review by default) or no fallback answers. Treat that as escalate; never skip a stage.
 
-**Fallback when Jev is down:** triage only, by default. jevo asks the local servers in `JEVO_FALLBACK_URLS`,
-default `http://127.0.0.1:8765` (Polaris), to route the slice. QA and review escalate with exit 2, and the
+**Fallback when Jev is down:** opt-in. `JEVO_FALLBACK_URLS` defaults to empty (no fallback); set it to a
+Jev-compatible server (for example Polaris) and, once enabled, jevo sends triage only to it, to route the slice. QA and review escalate with exit 2, and the
 health check is skipped, unless `JEVO_FALLBACK_STAGES` widens them. Polaris was measured unsafe on QA: it passed 54 of 56 unproven
-green gates. A fallback can never approve: its approval returns exit 3 with `backend` and
+green gates. A fallback can never approve or pass QA: its approval returns exit 3 with `backend` and
 `fallback_decision: approve`, and you then dispatch `frontier-reviewer`.
 
 ## Commands

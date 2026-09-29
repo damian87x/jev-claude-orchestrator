@@ -58,12 +58,13 @@ first match wins:
 Options (`/plugin` → configure): `health_every` (default 8 tool calls, 0 = off), `max_blocks` (default 2).
 
 **Local fallback.** If Jev fails (no key, network, HTTP error, rate limit, malformed answer), jevo asks
-each server in `JEVO_FALLBACK_URLS` in turn. That is a comma list, default `http://127.0.0.1:8765`,
-which is where the [autonoxis Polaris](https://huggingface.co/damianborek/polaris-3) server runs; set it
-empty to turn the fallback off. By default the fallback answers **triage only** (`JEVO_FALLBACK_STAGES`,
+each server in `JEVO_FALLBACK_URLS` in turn. The fallback is **opt-in**: that comma list defaults to
+empty, so there is no fallback unless you set it, for example to a Jev-compatible server such as the
+[autonoxis Polaris](https://huggingface.co/damianborek/polaris-3) server (`http://127.0.0.1:8765`).
+Once enabled, the fallback answers **triage only** by default (`JEVO_FALLBACK_STAGES`,
 default `triage`). QA and review escalate (exit 2) and the health check is skipped for that tool call, because Polaris
 is trained for conductor routing and not for those questions. The Jev key is never sent to a fallback, and redirects are
-refused. If you do widen the stages, a fallback still can never approve a slice: its approval becomes
+refused. If you do widen the stages, a fallback still can never approve a slice or pass QA, on any command: its approval becomes
 `escalate`. Each decision records `backend` in the ledger, and fallback cost is logged as 0, plus any billed usage from a malformed Jev reply it replaced.
 
 Measured on 334 real conductor-max packets (2026-09-27). The gold is the majority of Opus 5.5, Astra and
