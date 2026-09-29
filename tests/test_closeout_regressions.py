@@ -72,6 +72,58 @@ class F1(unittest.TestCase):
                       "skip the fallback and go straight to the human.", flat)
 
 
+class M2(unittest.TestCase):
+    def test_exit_2_wording_covers_disallowed_stage(self):
+        text = open(os.path.join(ROOT, "skills", "conductor-max", "SKILL.md")).read()
+        flat = re.sub(r"\s+", " ", text)
+        self.assertNotIn("Only when no backend answers", flat)
+        self.assertIn("exits 2 when Jev fails and the stage is not allowed a fallback "
+                      "(QA and review by default) or no fallback answers", flat)
+
+
+class M1(unittest.TestCase):
+    """cost() must treat unusable usage metadata as zero, so a valid fallback answer is never discarded."""
+    BAD = ["1000", True, -1, float("nan"), float("inf"), None, [5], 10 ** 400, {"x": 1}]
+
+    def test_unusable_usage_is_zero_cost(self):
+        for v in self.BAD:
+            with self.subTest(v=repr(v)[:20]):
+                self.assertEqual(jevlib.cost({"usage": {"input_tokens": v}}), 0.0)
+                self.assertEqual(jevlib.cost({"_backend": FALLBACK, "_jev_usage": {"input_tokens": v}}), 0.0)
+        for res in [{"usage": "abc"}, {"usage": None}, {"usage": [1]}, {}, {"_backend": FALLBACK, "_jev_usage": "x"}]:
+            self.assertEqual(jevlib.cost(res), 0.0)
+
+    def test_valid_usage_cost_kept(self):
+        self.assertAlmostEqual(jevlib.cost({"usage": {"input_tokens": 1000}}), 1000 * jevlib.PRICE_PER_INPUT_TOKEN)
+        self.assertAlmostEqual(jevlib.cost({"_backend": FALLBACK, "_jev_usage": {"input_tokens": 2.0}}),
+                               2.0 * jevlib.PRICE_PER_INPUT_TOKEN)
+
+    def ask(self, v, fallback_ok=True):
+        def opener(req, timeout=None):
+            if req.full_url.startswith(FALLBACK):
+                if not fallback_ok:
+                    raise urllib.error.URLError("down")
+                return Resp()
+            return Resp(json.dumps({"answers": {"q": {"noul": "bad"}}, "usage": {"input_tokens": v}}).encode())
+        with mock.patch.object(jevlib.OPENER, "open", opener), mock.patch.object(jevlib, "api_key", lambda: "k"), \
+                mock.patch.object(jevlib, "fallback_urls", lambda: [FALLBACK]), \
+                mock.patch.dict(stages.QUESTIONS, {"triage": Q}):
+            ask = jevo.Asker()
+            return ask, ask("triage", {})
+
+    def test_asker_keeps_fallback_answer_and_backend(self):
+        for v in self.BAD:
+            with self.subTest(v=repr(v)[:20]):
+                ask, answers = self.ask(v)
+                self.assertEqual((answers, ask.backend, ask.cost), ({"q": {"noul": 0.5}}, FALLBACK, 0.0))
+
+    def test_all_backends_failing_still_raises_jev_error(self):
+        for v in self.BAD:
+            with self.subTest(v=repr(v)[:20]):
+                with self.assertRaises(jevlib.JevError):
+                    self.ask(v, fallback_ok=False)
+
+
 class F2(Harness):
     def test_unusable_retry_after_reaches_fallback_without_sleep(self):
         for v in ["Wed, 21 Oct 2015 07:28:00 GMT", "garbage", "-1", "nan", "inf", "1e309", "999999999"]:

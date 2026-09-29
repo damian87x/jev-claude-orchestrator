@@ -2,7 +2,7 @@
 
 The key is never printed, logged, or written to the ledger.
 """
-import http.client, json, os, subprocess, time, urllib.error, urllib.request
+import http.client, json, math, os, subprocess, time, urllib.error, urllib.request
 
 BASE = os.environ.get("TYPESAFE_BASE_URL", "https://api.typesafe.ai").rstrip("/")
 MODEL = os.environ.get("JEV_MODEL", "jev-1.13.0")
@@ -169,9 +169,15 @@ def system_one(state, questions, model=None, timeout=30, qset=None):
 def cost(res):
     """Jev's list price. A local fallback costs nothing we can measure, but a malformed Jev reply it
     replaced may still have been billed."""
-    if res.get("_backend", "jev") != "jev":
-        return ((res.get("_jev_usage") or {}).get("input_tokens") or 0) * PRICE_PER_INPUT_TOKEN
-    return res.get("usage", {}).get("input_tokens", 0) * PRICE_PER_INPUT_TOKEN
+    usage = res.get("_jev_usage") if res.get("_backend", "jev") != "jev" else res.get("usage")
+    tokens = usage.get("input_tokens", 0) if isinstance(usage, dict) else 0
+    if isinstance(tokens, bool) or not isinstance(tokens, (int, float)) or tokens < 0:
+        return 0.0  # unusable billing metadata is unmeasured, never an error that discards a valid answer
+    try:
+        amount = tokens * PRICE_PER_INPUT_TOKEN
+    except OverflowError:
+        return 0.0
+    return amount if math.isfinite(amount) else 0.0
 
 
 def log(event, **fields):
