@@ -2,7 +2,7 @@
 
 The key is never printed, logged, or written to the ledger.
 """
-import json, os, subprocess, time, urllib.error, urllib.request
+import http.client, json, os, subprocess, time, urllib.error, urllib.request
 
 BASE = os.environ.get("TYPESAFE_BASE_URL", "https://api.typesafe.ai").rstrip("/")
 MODEL = os.environ.get("JEV_MODEL", "jev-1.13.0")
@@ -127,10 +127,16 @@ def post(url, body, headers, timeout):
             return out
         except urllib.error.HTTPError as e:
             if e.code == 429 and attempt < 3:
-                time.sleep(float(e.headers.get("retry-after") or 2 ** attempt))
+                try:
+                    delay = float(e.headers.get("retry-after") or 2 ** attempt)
+                except ValueError:
+                    raise JevError("http_429: invalid Retry-After") from None
+                if not 0 <= delay <= timeout:  # also rejects nan; an unusable wait goes to the fallback instead
+                    raise JevError("http_429: unsafe Retry-After")
+                time.sleep(delay)
                 continue
             raise JevError("http_%d" % e.code)
-        except (urllib.error.URLError, TimeoutError, ValueError) as e:
+        except (urllib.error.URLError, TimeoutError, ValueError, http.client.HTTPException) as e:
             raise JevError("transport: %s" % type(e).__name__)
     raise JevError("rate_limited")
 

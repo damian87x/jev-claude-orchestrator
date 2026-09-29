@@ -85,8 +85,8 @@ Exit codes: **0** proceed/approve/pass · **1** fix/reject/retry · **3** escala
    Claude workers, Opus 5.5 after Codex or other workers. Pass it every earlier failure reason verbatim. The other model reviews
    it: Astra reviews an Opus fix, `frontier-reviewer` (Opus) reviews an Astra fix. Note the switch in
    the scoreboard summary. If it still fails, the slice goes to the human list. Never make a fifth
-   attempt and never drop to a cheaper tier. `needs_human`, security and authority escalations skip the
-   fallback and go straight to the human.
+   attempt and never drop to a cheaper tier. `needs_human`, product, scope, security and authority escalations
+   skip the fallback and go straight to the human.
 6. **Integration verify** after each wave merges: full test/lint/typecheck. Red → find the culprit merge,
    revert it, requeue it as a fix slice.
 7. **Runtime proof** for user-facing goals: drive the running app (browser QA, or Reticle if installed).

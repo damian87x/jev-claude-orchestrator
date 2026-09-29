@@ -245,7 +245,7 @@ def watch(slice_id, agent, ask, limit=3600, idle=900, extend=1800, poll=30, tran
                 res = dict(decision="escalate", exit=3, reason="Jev error: %s: %s" % (type(e).__name__, e))
             jevlib.log("watch", slice=slice_id, agent=agent, decision=res["decision"], exit=res["exit"],
                        reason=res.get("reason"), elapsed_min=packet["elapsed_min"], idle_min=packet["idle_min"],
-                       cost_usd=round(ask.cost, 8), stub=ask.stub is not None)
+                       cost_usd=round(ask.cost, 8), stub=ask.stub is not None, backend=ask.backend)
             if res["decision"] != "extend":
                 return dict(res, elapsed_min=packet["elapsed_min"], idle_min=packet["idle_min"],
                             pending_action=packet["pending_action"])
