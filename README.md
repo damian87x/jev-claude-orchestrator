@@ -64,7 +64,7 @@ empty to turn the fallback off. By default the fallback answers **triage only** 
 default `triage`). QA and review escalate (exit 2) and the health check is skipped for that tool call, because Polaris
 is trained for conductor routing and not for those questions. The Jev key is never sent to a fallback, and redirects are
 refused. If you do widen the stages, a fallback still can never approve a slice: its approval becomes
-`escalate`. Each decision records `backend` in the ledger, and fallback cost is logged as 0.
+`escalate`. Each decision records `backend` in the ledger, and fallback cost is logged as 0, plus any billed usage from a malformed Jev reply it replaced.
 
 Measured on 334 real conductor-max packets (2026-09-27). The gold is the majority of Opus 5.5, Astra and
 Grok 4.7, and the test was pre-registered:
