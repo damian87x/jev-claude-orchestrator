@@ -1,11 +1,11 @@
 """Closeout regressions F1-F4. No network: OPENER, sleep and the ledger are mocked."""
-import http.client, io, os, re, sys, unittest, urllib.error
+import http.client, io, json, os, re, ssl, sys, unittest, urllib.error
 from email.message import Message
 from unittest import mock
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 sys.path[:0] = [os.path.join(ROOT, "lib"), os.path.join(ROOT, "scripts")]
-import jevlib, jevo  # noqa: E402
+import jevlib, jevo, stages  # noqa: E402
 
 FALLBACK = "http://fallback.invalid"
 Q = {"q": {"type": "noul"}}
@@ -94,11 +94,57 @@ class F2(Harness):
 class F3(Harness):
     def test_response_failure_reaches_fallback(self):
         cases = {"remote_disconnected": disconnect,
-                 "incomplete_read": lambda n: Resp(exc=http.client.IncompleteRead(b"x"))}
+                 "incomplete_read": lambda n: Resp(exc=http.client.IncompleteRead(b"x")),
+                 "os_error": lambda n: Resp(exc=OSError("read failed")),
+                 "connection_reset": lambda n: Resp(exc=ConnectionResetError("reset")),
+                 "ssl_error": lambda n: Resp(exc=ssl.SSLError("TLS read failed"))}
         for name, primary in cases.items():
             with self.subTest(name):
                 res, p, f, _, auth = self.run_system_one(primary)
                 self.assertEqual((res["_backend"], p, f, auth), (FALLBACK, 1, 1, [None]))
+
+
+class N2(unittest.TestCase):
+    """A tier answer without usable probabilities must fail over to the fallback, not crash stages.triage."""
+    TRIAGE = stages.QUESTIONS["triage"]
+    GOOD_P = {"fast": 0.8, "balanced": 0.1, "reasoning": 0.1}
+
+    def answers(self, probs):
+        ans = {"tier": {"choice": "fast", "confidence": 0.9}, "risk": {"score": 0},
+               "needs_human": {"noul": 0.0}, "shared_surface": {"noul": 0.0}}
+        if probs is not None:
+            ans["tier"]["probabilities"] = probs
+        return ans
+
+    def run_triage(self, primary_probs):
+        auth = []
+
+        def opener(req, timeout=None):
+            fb = req.full_url.startswith(FALLBACK)
+            auth.append((fb, req.get_header("Authorization")))
+            return Resp(json.dumps({"answers": self.answers(self.GOOD_P if fb else primary_probs)}).encode())
+        with mock.patch.object(jevlib.OPENER, "open", opener), mock.patch.object(jevlib, "api_key", lambda: "k"), \
+                mock.patch.object(jevlib, "fallback_urls", lambda: [FALLBACK]):
+            res = jevlib.system_one({}, self.TRIAGE, timeout=30, qset="triage")
+        return res, auth
+
+    def test_unusable_probabilities_reach_fallback(self):
+        nan, inf = float("nan"), float("inf")
+        bad = {"missing": None, "list": [0.8], "empty": {}, "incomplete": {"fast": 0.9}, "string": "fast",
+               "bool": {"fast": True, "balanced": 0.1, "reasoning": 0.1}, "nan": {"fast": nan, "balanced": 0.1, "reasoning": 0.1},
+               "inf": {"fast": inf, "balanced": 0.1, "reasoning": 0.1}, "negative": {"fast": -0.1, "balanced": 0.5, "reasoning": 0.5},
+               "above_one": {"fast": 1.5, "balanced": 0.1, "reasoning": 0.1},
+               "all_below_floor": {"fast": 0.2, "balanced": 0.2, "reasoning": 0.2}}
+        for name, probs in bad.items():
+            with self.subTest(name):
+                res, auth = self.run_triage(probs)
+                self.assertEqual(res["_backend"], FALLBACK)
+                self.assertEqual(auth, [(False, "Bearer k"), (True, None)])
+                self.assertEqual(stages.triage({"goal": "g"}, lambda q, s: res["answers"])["tier"], "fast")
+
+    def test_valid_probabilities_stay_on_jev(self):
+        res, auth = self.run_triage(self.GOOD_P)
+        self.assertEqual((res["_backend"], len(auth)), ("jev", 1))
 
 
 class F4(unittest.TestCase):

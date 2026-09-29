@@ -99,6 +99,11 @@ def malformed(out, questions):
         if t == "choice" and (not isinstance(a.get("choice"), str) or a["choice"] not in (q.get("criteria") or {})
                               or not num(a.get("confidence"))):
             return "bad choice for " + qid
+        if t == "choice" and qid == "tier":  # stages.triage reads probabilities, so a fallback must be tried before it does
+            p = a.get("probabilities")
+            criteria = q.get("criteria") or {}
+            if not isinstance(p, dict) or any(not num(p.get(k)) for k in criteria) or not any(p[k] >= 0.25 for k in criteria):
+                return "bad probabilities for " + qid
         if t == "score" and not num(a.get("score"), max(len(q.get("criteria") or ()) - 1, 0)):
             return "bad score for " + qid
     return ""
@@ -136,7 +141,7 @@ def post(url, body, headers, timeout):
                 time.sleep(delay)
                 continue
             raise JevError("http_%d" % e.code)
-        except (urllib.error.URLError, TimeoutError, ValueError, http.client.HTTPException) as e:
+        except (urllib.error.URLError, OSError, ValueError, http.client.HTTPException) as e:
             raise JevError("transport: %s" % type(e).__name__)
     raise JevError("rate_limited")
 
