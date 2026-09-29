@@ -116,12 +116,12 @@ def fallback_stages():
 
 
 def post(url, body, headers, timeout):
-    req = urllib.request.Request(
-        url + "/v1/systemone", method="POST", data=json.dumps(body).encode(),
-        headers=dict(headers, **{"Content-Type": "application/json", "Accept": "application/json",
-                                 "User-Agent": "jev-claude-orchestrator/0.1"}))
     for attempt in range(4):
         try:
+            req = urllib.request.Request(
+                url + "/v1/systemone", method="POST", data=json.dumps(body).encode(),
+                headers=dict(headers, **{"Content-Type": "application/json", "Accept": "application/json",
+                                         "User-Agent": "jev-claude-orchestrator/0.1"}))
             t0 = time.perf_counter()
             with OPENER.open(req, timeout=timeout) as r:
                 out = json.load(r)

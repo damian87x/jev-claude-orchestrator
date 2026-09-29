@@ -156,6 +156,45 @@ class F3(Harness):
                 self.assertEqual((res["_backend"], p, f, auth), (FALLBACK, 1, 1, [None]))
 
 
+class MalformedURLs(unittest.TestCase):
+    def setUp(self):
+        self.opener = self.enterContext(mock.patch.object(jevlib.OPENER, "open", return_value=Resp()))
+        self.enterContext(mock.patch.object(jevlib, "api_key", return_value="k"))
+        self.enterContext(mock.patch.dict(os.environ, {"JEVO_FALLBACK_STAGES": "triage"}))
+
+    def test_malformed_primary_reaches_valid_fallback(self):
+        with mock.patch.object(jevlib, "BASE", "missing-scheme"), \
+                mock.patch.object(jevlib, "fallback_urls", return_value=[FALLBACK]):
+            res = jevlib.system_one({}, Q, qset="triage")
+        self.assertEqual(res["_backend"], FALLBACK)
+        self.assertEqual(res["_jev_error"], "jev: transport: ValueError")
+        self.opener.assert_called_once()
+        req = self.opener.call_args.args[0]
+        self.assertEqual(req.full_url, FALLBACK + "/v1/systemone")
+        self.assertIsNone(req.get_header("Authorization"))
+
+    def test_malformed_first_fallback_reaches_valid_second(self):
+        self.opener.side_effect = [urllib.error.URLError("down"), Resp()]
+        with mock.patch.object(jevlib, "BASE", "https://primary.invalid"), \
+                mock.patch.object(jevlib, "fallback_urls", return_value=["http://[broken", FALLBACK]):
+            res = jevlib.system_one({}, Q, qset="triage")
+        self.assertEqual(res["_backend"], FALLBACK)
+        requests = [call.args[0] for call in self.opener.call_args_list]
+        self.assertEqual([req.full_url for req in requests],
+                         ["https://primary.invalid/v1/systemone", FALLBACK + "/v1/systemone"])
+        self.assertEqual([req.get_header("Authorization") for req in requests], ["Bearer k", None])
+
+    def test_all_malformed_urls_raise_jev_error(self):
+        with mock.patch.object(jevlib, "BASE", "missing-scheme"), \
+                mock.patch.object(jevlib, "fallback_urls", return_value=["http://[broken", "also-missing-scheme"]):
+            with self.assertRaises(jevlib.JevError) as caught:
+                jevlib.system_one({}, Q, qset="triage")
+        self.assertEqual(str(caught.exception),
+                         "jev: transport: ValueError; fallback http://[broken: transport: ValueError; "
+                         "fallback also-missing-scheme: transport: ValueError")
+        self.opener.assert_not_called()
+
+
 class N2(unittest.TestCase):
     """A tier answer without usable probabilities must fail over to the fallback, not crash stages.triage."""
     TRIAGE = stages.QUESTIONS["triage"]
